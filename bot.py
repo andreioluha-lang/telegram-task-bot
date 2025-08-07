@@ -1,21 +1,29 @@
 from flask import Flask, request
 import requests
 import os
+import re
 
 app = Flask(__name__)
 
+# Токен бота Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8273457113:AAEwKVgBULKkKA3pFkqa-dI_qZiaHryKGDw")
+# Твой Telegram chat_id
+CHAT_ID = int(os.getenv("CHAT_ID", "962399273"))
+
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Хранилище задач: message_id → status
+# Память задач (в ОЗУ)
 tasks = {}
+
+def escape_markdown_v2(text):
+    return re.sub(r'([_*\[\]()~`>#+=|{}.!\\-])', r'\\\1', text)
 
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running"
 
 @app.route("/", methods=["POST"])
-def webhook():
+def telegram_webhook():
     data = request.get_json()
 
     if "message" in data:
@@ -33,16 +41,24 @@ def webhook():
         callback_id = query["id"]
 
         if message_id in tasks and tasks[message_id] == "done":
-            # уже выполнено
             answer_callback(callback_id, "Уже выполнено.")
         else:
-            # пометить как выполнено
             tasks[message_id] = "done"
             updated_text = f"✅ ~{task_text}~"
             edit_message(chat_id, message_id, updated_text)
             answer_callback(callback_id, "Отмечено как выполнено ✅")
 
     return "OK", 200
+
+@app.route("/new-task", methods=["POST"])
+def create_task_from_shortcut():
+    data = request.get_json()
+    text = data.get("text", "").strip()
+
+    if text:
+        send_task(CHAT_ID, text)
+        return "Task sent", 200
+    return "No text provided", 400
 
 def send_task(chat_id, task_text):
     payload = {
@@ -60,11 +76,12 @@ def send_task(chat_id, task_text):
         tasks[message_id] = "pending"
 
 def edit_message(chat_id, message_id, new_text):
+    escaped_text = escape_markdown_v2(f"✅ ~{new_text}~")
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "text": new_text,
-        "parse_mode": "Markdown"
+        "text": escaped_text,
+        "parse_mode": "MarkdownV2"
     }
     requests.post(f"{API_URL}/editMessageText", json=payload)
 
