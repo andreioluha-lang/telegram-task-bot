@@ -1,55 +1,44 @@
 from flask import Flask, request
 import requests
-
-BOT_TOKEN = '8273457113:AAEwKVgBULKkKA3pFkqa-dI_qZiaHryKGDw'
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+import os
 
 app = Flask(__name__)
 
-@app.route('/', methods=['POST'])
+# Получаем токен и chat_id из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8273457113:AAEwKVgBULKkKA3pFkqa-dI_qZiaHryKGDw")
+CHAT_ID = os.getenv("CHAT_ID", "962399273")  # Подставь свой chat_id, если не используешь переменные
+
+# Главная страница (проверка работоспособности)
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running"
+
+# Прием webhook от Telegram
+@app.route("/", methods=["POST"])
 def webhook():
-    data = request.json
+    data = request.get_json()
+    message = data.get("message", {}).get("text", "")
+    chat_id = data.get("message", {}).get("chat", {}).get("id", CHAT_ID)
 
-    if "callback_query" in data:
-        query = data["callback_query"]
-        chat_id = query["message"]["chat"]["id"]
-        message_id = query["message"]["message_id"]
-        original_text = query["message"]["text"]
+    if message:
+        reply = f"Принято: {message}"
+        send_message(chat_id, reply)
 
-        updated_text = original_text.replace("📝 Задача:", "✅ Задача выполнена:").replace("\n", "\n~") + "~"
+    return "OK", 200
 
-        requests.post(f"{API_URL}/editMessageText", json={
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": updated_text,
-            "parse_mode": "Markdown"
-        })
+# Функция отправки сообщения
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Ошибка при отправке сообщения: {e}")
 
-        requests.post(f"{API_URL}/editMessageReplyMarkup", json={
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "reply_markup": {"inline_keyboard": []}
-        })
-
-        return "ok", 200
-
-    elif "message" in data:
-        msg = data["message"]
-        text = msg.get("text", "").strip()
-        chat_id = msg["chat"]["id"]
-
-        task_text = f"📝 Задача:\n{text}"
-
-        requests.post(f"{API_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": task_text,
-            "reply_markup": {
-                "inline_keyboard": [
-                    [{"text": "✅ Выполнено", "callback_data": "done"}]
-                ]
-            }
-        })
-
-        return "ok", 200
-
-    return "ignored", 200
+# Запуск Flask-приложения с динамическим портом для Render
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
